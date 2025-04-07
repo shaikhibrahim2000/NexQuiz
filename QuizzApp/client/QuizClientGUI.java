@@ -7,7 +7,6 @@ import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
-import java.net.Socket;
 
 public class QuizClientGUI {
     private JFrame frame;
@@ -18,16 +17,47 @@ public class QuizClientGUI {
     private ObjectOutputStream out;
     private ObjectInputStream in;
 
+    private int currentQuestion = 0;
+    private int score = 0;
+    private String playerName;
+
     public QuizClientGUI(ObjectOutputStream out, ObjectInputStream in) {
         this.out = out;
         this.in = in;
+
+        // Ask for player's name
+        this.playerName = JOptionPane.showInputDialog("Enter your name:");
+        try {
+            out.writeObject(playerName);
+            out.flush();
+        } catch (Exception e) {
+            showError("Failed to send name.");
+        }
+
         createAndShowGUI();
+        new Thread(this::gameLoop).start(); // run question cycle in background
     }
 
-    public void createAndShowGUI() {
-        frame = new JFrame("Kahoot Quiz App");
+    private void playSound(String filename) {
+    try {
+        javax.sound.sampled.AudioInputStream audioInputStream =
+            javax.sound.sampled.AudioSystem.getAudioInputStream(
+                new java.io.File("client/sounds/" + filename).getAbsoluteFile());
+
+        javax.sound.sampled.Clip clip = javax.sound.sampled.AudioSystem.getClip();
+        clip.open(audioInputStream);
+        clip.start();
+    } catch (Exception e) {
+        System.err.println("Could not play sound: " + filename);
+        e.printStackTrace();
+    }
+}
+
+
+    private void createAndShowGUI() {
+        frame = new JFrame("Quiz Game - " + playerName);
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        frame.setSize(400, 300);
+        frame.setSize(500, 400);
         frame.setLayout(new BorderLayout());
 
         questionLabel = new JLabel("Waiting for question...", SwingConstants.CENTER);
@@ -39,8 +69,9 @@ public class QuizClientGUI {
 
         for (int i = 0; i < 4; i++) {
             int index = i;
-            optionButtons[i] = new JButton("Option " + (i + 1));
+            optionButtons[i] = new JButton(); // Leave empty initially
             optionButtons[i].addActionListener((ActionEvent e) -> sendAnswer(index));
+            optionButtons[i].setEnabled(false);
             buttonPanel.add(optionButtons[i]);
         }
 
@@ -51,30 +82,76 @@ public class QuizClientGUI {
         frame.add(resultLabel, BorderLayout.SOUTH);
 
         frame.setVisible(true);
-
-        // Start listening for a question
-        new Thread(this::receiveAndDisplayQuestion).start();
     }
 
-    private void receiveAndDisplayQuestion() {
+    private void gameLoop() {
         try {
-            Question question = (Question) in.readObject();
-            questionLabel.setText("📚 " + question.getQuestionText());
+            while (true) {
+                Object incoming = in.readObject();
 
-            for (int i = 0; i < question.getOptions().size(); i++) {
-                optionButtons[i].setText(question.getOptions().get(i));
-                optionButtons[i].setEnabled(true); // Enable all buttons
+                if (incoming instanceof Question) {
+                    displayQuestion((Question) incoming);
+                } else if (incoming instanceof String) {
+                    String message = (String) incoming;
+                    if (message.startsWith("🏆 Final Leaderboard")) {
+                        showFinalScore(message);
+                        break;
+                    } 
+                    else {
+                        resultLabel.setText("📝 " + message);
+
+                    if (message.toLowerCase().startsWith("correct")) {
+                        playSound("correct.wav");
+                    } else if (message.toLowerCase().startsWith("wrong")) {
+                        playSound("wrong.wav");
+                    }
+
+                    }
+
+                }
             }
-
         } catch (Exception e) {
-            showError("Failed to load question.");
+            showError("Connection lost.");
             e.printStackTrace();
         }
     }
 
+    private void displayQuestion(Question question) {
+        SwingUtilities.invokeLater(() -> {
+            questionLabel.setText("📚 " + question.getQuestionText());
+            boolean isImageQuestion = question.getQuestionText().equalsIgnoreCase("Click on the capital of France");
+
+            for (int i = 0; i < optionButtons.length; i++) {
+                optionButtons[i].setEnabled(true);
+
+                if (isImageQuestion) {
+                    ImageIcon icon = new ImageIcon("client/images/" + getImageFilename(i));
+                    Image scaledImage = icon.getImage().getScaledInstance(150, 100, Image.SCALE_SMOOTH);
+                    ImageIcon scaledIcon = new ImageIcon(scaledImage);
+                    optionButtons[i].setIcon(scaledIcon);
+                    optionButtons[i].setText(""); // remove text
+                } else {
+                    optionButtons[i].setIcon(null); // remove image
+                    optionButtons[i].setText(question.getOptions().get(i));
+                }
+            }
+
+            resultLabel.setText(" ");
+        });
+    }
+
+    private String getImageFilename(int index) {
+        return switch (index) {
+            case 0 -> "berlin.jpg";
+            case 1 -> "madrid.jpg";
+            case 2 -> "paris.jpg";
+            case 3 -> "rome.jpg";
+            default -> "default.jpg";
+        };
+    }
+
     private void sendAnswer(int index) {
         try {
-            // Disable buttons so user can't answer multiple times
             for (JButton button : optionButtons) {
                 button.setEnabled(false);
             }
@@ -82,13 +159,21 @@ public class QuizClientGUI {
             out.writeInt(index);
             out.flush();
 
-            String result = (String) in.readObject();
-            resultLabel.setText("📝 " + result);
-
         } catch (Exception e) {
             showError("Failed to send answer.");
             e.printStackTrace();
         }
+    }
+
+    private void showFinalScore(String message) {
+        SwingUtilities.invokeLater(() -> {
+            JOptionPane.showMessageDialog(frame, message, "Quiz Over", JOptionPane.INFORMATION_MESSAGE);
+            questionLabel.setText("Thank you for playing, " + playerName + "!");
+            for (JButton button : optionButtons) {
+                button.setVisible(false);
+            }
+            resultLabel.setText(message);
+        });
     }
 
     private void showError(String message) {
