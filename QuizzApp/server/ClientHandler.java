@@ -12,8 +12,6 @@ import java.util.ArrayList;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 
-
-
 public class ClientHandler extends Thread {
     private Socket socket;
 
@@ -36,17 +34,19 @@ public class ClientHandler extends Thread {
             Player player = new Player(name);
             System.out.println("Player joined: " + player.getName());
 
-            // List of multiple questions
+            // Load audio file for music question
+            byte[] audioData = Files.readAllBytes(Paths.get("server/audio/song.wav"));
+
+            // Load image file for image-based question
+            byte[] imageData = Files.readAllBytes(Paths.get("server/images/messi.jpg"));
+
+            // List of questions
             List<Question> questions = Arrays.asList(
                 new Question("Click on the capital of France", Arrays.asList("Berlin", "Madrid", "Paris", "Rome"), 2),
                 new Question("5 + 3 = ?", Arrays.asList("6", "7", "8", "9"), 2),
                 new Question("Which one is a fruit?", Arrays.asList("Carrot", "Apple", "Potato", "Cabbage"), 1),
-                new Question("Who sang this song?", Arrays.asList("Adele", "Beyoncé", "John Denver", "SZA"), 2),
-                new Question("Who is in this image?", Arrays.asList("Neymar", "Bale", "Messi", "Ronaldo"),
-                2,
-                Files.readAllBytes(Paths.get("server/images/messi.jpg"))
-    )
-
+                new Question("Who sang this song?", Arrays.asList("Adele", "Beyoncé", "John Denver", "SZA"), 2, null, audioData),
+                new Question("Who is in this image?", Arrays.asList("Neymar", "Bale", "Messi", "Ronaldo"), 2, imageData)
             );
 
             for (Question q : questions) {
@@ -87,14 +87,13 @@ public class ClientHandler extends Thread {
             for (int i = 0; i < leaderboard.size(); i++) {
                 Player p = leaderboard.get(i);
                 leaderboardText.append((i + 1)).append(". ")
-                            .append(p.getName())
-                            .append(" - ").append(p.getScore()).append(" points\n");
+                        .append(p.getName())
+                        .append(" - ").append(p.getScore()).append(" points\n");
             }
 
             // Send leaderboard to client
             out.writeObject(leaderboardText.toString());
             out.flush();
-
 
         } catch (Exception e) {
             e.printStackTrace();
